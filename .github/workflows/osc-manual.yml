@@ -1,0 +1,56 @@
+# Fork-only: run upstream's `test` workflow steps against an arbitrary ref.
+# Upstream's ci triggers on `pull_request` and pushes to master, so a feature
+# branch pushed to this fork fires nothing. This wrapper is dispatched from the
+# default branch with the branch to verify as an input, which lets a change be
+# checked on a runner before any pull request exists upstream.
+#
+# Every dispatch runs THIS definition regardless of `target_ref`, so keep the
+# steps generic — a step that only makes sense on one branch breaks all the
+# others. Job steps mirror .github/workflows/test.yml; keep them in sync.
+name: osc-manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Branch, tag or SHA to check out and verify
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_ref }}
+      # The run's own head_sha is this workflow file's commit on the default
+      # branch, never the tree that was tested. Echo the real one.
+      - run: echo "checked-out SHA $(git rev-parse HEAD)"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [20, 22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_ref }}
+      - run: echo "checked-out SHA $(git rev-parse HEAD)"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
